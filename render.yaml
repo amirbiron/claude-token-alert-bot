@@ -1,0 +1,12 @@
+services:
+  - type: worker
+    name: claude-token-alert-bot
+    env: python
+    region: oregon  # default region; adjust as needed
+    plan: free
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: true
