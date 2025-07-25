@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: claude-token-alert-bot
     env: python
     region: oregon  # default region; adjust as needed
@@ -10,3 +10,5 @@ services:
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: true
+      - key: WEBHOOK_URL
+        value: https://claude-token-alert-bot.onrender.com
