@@ -32,6 +32,8 @@ import logging
 import os
 from typing import Optional
 
+logger = logging.getLogger(__name__)
+
 from telegram import Update
 from telegram.ext import (ApplicationBuilder, CommandHandler,
                           ContextTypes, JobQueue)
@@ -56,6 +58,7 @@ def _validate_minutes(text: str) -> Optional[int]:
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /start command and display usage instructions."""
+    logger.info("Received /start from %s", update.effective_user.id)
     message = (
         "שלום! אני בוט התראה לזמן כתיבת Claude.\n\n"
         "השתמש ב־/start_session <מספר דקות> כדי להתחיל מעקב אחר שיחה.\n"
@@ -67,6 +70,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Start a new session and schedule reminders for 10 and 5 minutes remaining."""
+    logger.info(
+        "Received /start_session from %s with args: %s",
+        update.effective_user.id,
+        context.args,
+    )
     chat_id = update.effective_chat.id
     args = context.args
 
@@ -120,6 +128,8 @@ async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         name=f"session_end_{chat_id}"
     )
 
+    logger.info("Scheduled session for chat %s lasting %d minutes", chat_id, total_minutes)
+
     # Store jobs so they can be cancelled on a new /start_session
     context.chat_data["sessions"][chat_id] = [job for job in (job_10, job_5, job_end) if job]
 
@@ -135,6 +145,9 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
     minutes_left = job.data.get("minutes_left")
     total = job.data.get("total")
     if minutes_left and total:
+        logger.info(
+            "Sending %d-minute reminder for chat %s", minutes_left, job.chat_id
+        )
         await context.bot.send_message(
             chat_id=job.chat_id,
             text=(
@@ -147,6 +160,7 @@ async def send_session_end(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Notify the user that the session has ended."""
     job = context.job
     total = job.data.get("total")
+    logger.info("Session ended for chat %s after %d minutes", job.chat_id, total)
     await context.bot.send_message(
         chat_id=job.chat_id,
         text=(
@@ -166,6 +180,8 @@ def main() -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         level=logging.INFO,
     )
+
+    logger.info("Bot starting up")
 
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
