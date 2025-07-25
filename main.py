@@ -35,8 +35,8 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 from telegram import Update
-from telegram.ext import (ApplicationBuilder, CommandHandler,
-                          ContextTypes, JobQueue)
+from telegram.ext import (Application, CommandHandler,
+                          ContextTypes)
 
 
 # Read the bot token from the environment. You must set this in
@@ -99,7 +99,7 @@ async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         for job in session_jobs:
             job.schedule_removal()
 
-    job_queue: JobQueue = context.job_queue
+    job_queue = context.job_queue
 
     # Helper function to schedule a reminder
     def schedule_reminder(minutes_left: int):
@@ -183,7 +183,8 @@ def main() -> None:
 
     logger.info("Bot starting up")
 
-    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    # Create the Application using the builder pattern (v20+ style)
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     # Register command handlers
     application.add_handler(CommandHandler("start", start_command))
