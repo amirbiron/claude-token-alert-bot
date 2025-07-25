@@ -12,8 +12,8 @@ to 10 and 5 minutes remaining. When the session finishes the bot sends
 an end‑of‑session message.
 
 This bot uses python‑telegram‑bot v20+ and its built‑in job queue to
-schedule reminders. When run on Render as a worker service the bot
-polls Telegram for updates and executes scheduled jobs.
+schedule reminders. When run on Render as a web service the bot
+receives webhooks from Telegram and executes scheduled jobs.
 
 To deploy this bot you must provide the ``TELEGRAM_BOT_TOKEN``
 environment variable. On Render you can add this as an environment
@@ -31,17 +31,24 @@ Commands:
 import logging
 import os
 from typing import Optional
-
-logger = logging.getLogger(__name__)
-
+from flask import Flask, request, Response
+import asyncio
+import threading
 from telegram import Update
 from telegram.ext import (Application, CommandHandler,
                           ContextTypes)
 
+logger = logging.getLogger(__name__)
 
 # Read the bot token from the environment. You must set this in
 # Render or your local environment for the bot to authenticate.
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # e.g., https://your-app.onrender.com
+PORT = int(os.environ.get("PORT", 5000))
+
+# Global application instance
+application = None
+app = Flask(__name__)
 
 
 def _validate_minutes(text: str) -> Optional[int]:
@@ -169,8 +176,51 @@ async def send_session_end(context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-def main() -> None:
-    """Entry point: set up the bot and begin polling."""
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    """Handle incoming webhook from Telegram."""
+    try:
+        # Get the JSON data from the request
+        json_data = request.get_json()
+        
+        if not json_data:
+            logger.warning("Received empty webhook data")
+            return Response(status=200)
+        
+        # Create Update object from the JSON data
+        update = Update.de_json(json_data, application.bot)
+        
+        if update:
+            # Process the update in a separate thread to avoid blocking
+            def process_update():
+                asyncio.run(application.process_update(update))
+            
+            thread = threading.Thread(target=process_update)
+            thread.start()
+        
+        return Response(status=200)
+    
+    except Exception as e:
+        logger.error(f"Error processing webhook: {e}")
+        return Response(status=500)
+
+
+@app.route("/health", methods=["GET"])
+def health_check():
+    """Health check endpoint for monitoring."""
+    return {"status": "healthy", "service": "claude-session-bot"}
+
+
+@app.route("/", methods=["GET"])
+def index():
+    """Simple index page."""
+    return {"message": "Claude Session Bot is running", "status": "active"}
+
+
+def setup_bot():
+    """Set up the bot application."""
+    global application
+    
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError(
             "Missing TELEGRAM_BOT_TOKEN environment variable. Please set it to your bot token."
@@ -181,7 +231,7 @@ def main() -> None:
         level=logging.INFO,
     )
 
-    logger.info("Bot starting up")
+    logger.info("Bot starting up as web service")
 
     # Create the Application using the builder pattern (v20+ style)
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
@@ -190,8 +240,24 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("start_session", start_session))
 
-    # Run the bot until Ctrl-C is pressed
-    application.run_polling()
+    # Initialize the application
+    asyncio.run(application.initialize())
+    
+    # Set webhook if WEBHOOK_URL is provided
+    if WEBHOOK_URL:
+        webhook_url = f"{WEBHOOK_URL}/webhook"
+        logger.info(f"Setting webhook to {webhook_url}")
+        asyncio.run(application.bot.set_webhook(webhook_url))
+    else:
+        logger.warning("WEBHOOK_URL not set. Bot will not receive updates until webhook is configured.")
+
+
+def main():
+    """Entry point: set up the bot and start the Flask web server."""
+    setup_bot()
+    
+    logger.info(f"Starting Flask web server on port {PORT}")
+    app.run(host="0.0.0.0", port=PORT, debug=False)
 
 
 if __name__ == "__main__":
